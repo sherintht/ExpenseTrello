@@ -1,22 +1,41 @@
 import firebase_admin
-from firebase_admin import credentials, firestore, auth
+from firebase_admin import credentials, firestore
+import json
+import streamlit as st
 from dotenv import load_dotenv
 import os
-import streamlit as st
 from datetime import datetime
 
-# Load environment variables from .env file
+# Load environment variables from .env file (for local development)
 load_dotenv()
 
-# Get the path to the Firebase Service Account Key from the environment variable
-service_account_key_path = os.getenv("FIREBASE_SERVICE_ACCOUNT_KEY_PATH")
+# Determine if running in Streamlit Cloud or locally
+is_streamlit_cloud = "STREAMLIT_RUNTIME" in os.environ
 
-# Initialize Firebase Admin SDK with the service account key
-cred = credentials.Certificate(service_account_key_path)
-firebase_admin.initialize_app(cred)
-
-# Initialize Firestore
-db = firestore.client()
+# Check if we're using Streamlit secrets (Cloud) or .env (local development)
+if is_streamlit_cloud:
+    # Streamlit Cloud - Use Streamlit secrets to load Firebase service account credentials
+    firebase_secret = st.secrets["firebase_service_account"]
+    try:
+        cred = credentials.Certificate(json.loads(firebase_secret))  # Load credentials from secrets
+        firebase_admin.initialize_app(cred)
+        db = firestore.client()
+    except ValueError as e:
+        st.error(f"Error initializing Firebase: {e}")
+        raise e
+else:
+    # Local Development - Use .env file to load the service account key path
+    service_account_key_path = os.getenv("FIREBASE_SERVICE_ACCOUNT_KEY_PATH")
+    if not service_account_key_path:
+        st.error("Firebase service account key path is not set in the environment variable.")
+    else:
+        try:
+            cred = credentials.Certificate(service_account_key_path)
+            firebase_admin.initialize_app(cred)
+            db = firestore.client()
+        except ValueError as e:
+            st.error(f"Error initializing Firebase: {e}")
+            raise e
 
 # Function to register user (Sign Up)
 def register_user(email, password):
