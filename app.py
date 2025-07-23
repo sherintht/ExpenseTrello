@@ -1,10 +1,11 @@
 import firebase_admin
-from firebase_admin import credentials, firestore
+from firebase_admin import credentials, firestore, auth
 import json
 import streamlit as st
 from dotenv import load_dotenv
 import os
 from datetime import datetime
+from firebase_admin.exceptions import FirebaseError  # Import FirebaseError
 
 # Load environment variables from .env file (for local development)
 load_dotenv()
@@ -45,15 +46,19 @@ def register_user(email, password):
     try:
         user = auth.create_user(email=email, password=password)
         return user
-    except Exception as e:
+    except FirebaseError as e:
+        st.error(f"Error registering user: {e}")
         return None
 
 # Function to sign in user (Login)
 def sign_in_user(email):
     try:
+        # Try to get the user by email
         user = auth.get_user_by_email(email)
         return user
-    except auth.UserNotFoundError:
+    except FirebaseError as e:  # Catching FirebaseError for auth issues
+        # Handle the case when the user is not found or any other authentication errors
+        st.error(f"Error signing in: {e}")
         return None
 
 # Function to add a task
