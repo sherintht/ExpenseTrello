@@ -2,10 +2,10 @@ import streamlit as st
 from airtable import Airtable
 import pandas as pd
 
-# Airtable Credentials
-KANBAN_BASE_ID = 'appDiOJA2xr7toBC0/tblGxFNnr4py8y8wW/viwJEOPxPLJflHJF3?blocks=hide '
-EXPENSE_BASE_ID = 'appDiOJA2xr7toBC0/tblj5yXs3UxTQnpQU/viwgVE0RZBt7w1i8b?blocks=hide'
-API_KEY = 'patRZYsHPPNA0BVyZ.275e89210111990201f7cb27f048857ed14f5912b8e282f1eb843785e6eabe2a'
+# Airtable Credentials (use Streamlit secrets management for security)
+KANBAN_BASE_ID = st.secrets["KANBAN_BASE_ID"]  # Secure API Base ID
+EXPENSE_BASE_ID = st.secrets["EXPENSE_BASE_ID"]  # Secure Expense Base ID
+API_KEY = st.secrets["AIRTABLE_API_KEY"]  # Secure API Key
 KANBAN_TABLE = 'Tasks'
 EXPENSE_TABLE = 'Expenses'
 
