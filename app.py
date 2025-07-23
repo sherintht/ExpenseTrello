@@ -1,118 +1,122 @@
+import firebase_admin
+from firebase_admin import credentials, firestore, auth
+from dotenv import load_dotenv
+import os
 import streamlit as st
-import requests
-import pandas as pd
-from datetime import date
+from datetime import datetime
 
-# Airtable config from Streamlit secrets
-AIRTABLE_API_KEY = st.secrets["airtable"]["api_key"]
-KANBAN_BASE_ID = st.secrets["airtable"]["kanban_base_id"]
-KANBAN_TABLE = st.secrets["airtable"]["kanban_table"]
-EXPENSE_BASE_ID = st.secrets["airtable"]["expense_base_id"]
-EXPENSE_TABLE = st.secrets["airtable"]["expense_table"]
+# Load environment variables from .env file
+load_dotenv()
 
-HEADERS = {"Authorization": f"Bearer {AIRTABLE_API_KEY}"}
+# Get the path to the Firebase Service Account Key from the environment variable
+service_account_key_path = os.getenv("FIREBASE_SERVICE_ACCOUNT_KEY_PATH")
 
-# Airtable API helpers
-def get_records(base_id, table):
-    url = f"https://api.airtable.com/v0/{base_id}/{table}"
-    response = requests.get(url, headers=HEADERS)
-    response.raise_for_status()
-    return response.json().get("records", [])
+# Initialize Firebase Admin SDK with the service account key
+cred = credentials.Certificate(service_account_key_path)
+firebase_admin.initialize_app(cred)
 
-def create_record(base_id, table, fields):
-    url = f"https://api.airtable.com/v0/{base_id}/{table}"
-    data = {"fields": fields}
-    response = requests.post(url, headers=HEADERS, json=data)
-    response.raise_for_status()
-    return response.json()
+# Initialize Firestore
+db = firestore.client()
 
-def update_record(base_id, table, record_id, fields):
-    url = f"https://api.airtable.com/v0/{base_id}/{table}/{record_id}"
-    data = {"fields": fields}
-    response = requests.patch(url, headers=HEADERS, json=data)
-    response.raise_for_status()
-    return response.json()
+# Function to register user (Sign Up)
+def register_user(email, password):
+    try:
+        user = auth.create_user(email=email, password=password)
+        return user
+    except Exception as e:
+        return None
 
-# Sidebar navigation
-st.sidebar.title("Navigation")
-page = st.sidebar.radio("Go to", ["Kanban Board", "Expense Tracker"])
+# Function to sign in user (Login)
+def sign_in_user(email):
+    try:
+        user = auth.get_user_by_email(email)
+        return user
+    except auth.UserNotFoundError:
+        return None
 
-# --- Kanban Board ---
-if page == "Kanban Board":
-    st.title("🗂️ Kanban Board")
-    # Add Task Form
-    with st.form("add_task"):
-        name = st.text_input("Task Name")
-        description = st.text_area("Description")
-        due_date = st.date_input("Due Date", value=date.today())
-        status = st.selectbox("Status", ["To Do", "In Progress", "Done"])
-        submitted = st.form_submit_button("Add Task")
-        if submitted and name:
-            create_record(KANBAN_BASE_ID, KANBAN_TABLE, {
-                "Name": name,
-                "Description": description,
-                "Due Date": due_date.isoformat(),
-                "Status": status
-            })
-            st.success("Task added!")
-            st.experimental_rerun()
+# Function to add a task
+def add_task(user_id, task_name):
+    task_data = {
+        'user_id': user_id,
+        'task': task_name,
+        'status': 'To-Do',
+        'created_at': firestore.SERVER_TIMESTAMP
+    }
+    task_ref = db.collection('tasks').add(task_data)
+    return task_ref
 
-    # Fetch and display tasks
-    records = get_records(KANBAN_BASE_ID, KANBAN_TABLE)
-    tasks = pd.DataFrame([{
-        "id": r["id"],
-        "Name": r["fields"].get("Name", ""),
-        "Description": r["fields"].get("Description", ""),
-        "Due Date": r["fields"].get("Due Date", ""),
-        "Status": r["fields"].get("Status", "")
-    } for r in records])
+# Function to display tasks for a user
+def display_tasks(user_id):
+    tasks_ref = db.collection('tasks').where('user_id', '==', user_id).stream()
+    tasks = [task.to_dict() for task in tasks_ref]
+    for task in tasks:
+        st.write(f"Task: {task['task']} - Status: {task['status']}")
 
-    # Kanban columns
-    cols = st.columns(3)
-    statuses = ["To Do", "In Progress", "Done"]
-    for i, status in enumerate(statuses):
-        with cols[i]:
-            st.subheader(status)
-            for idx, row in tasks[tasks["Status"] == status].iterrows():
-                st.markdown(f"**{row['Name']}**\n\n{row['Description']}\n\nDue: {row['Due Date']}")
-                # Status update
-                new_status = st.selectbox(
-                    f"Move to...", statuses, index=statuses.index(status), key=f"{row['id']}_status"
-                )
-                if new_status != status:
-                    update_record(KANBAN_BASE_ID, KANBAN_TABLE, row["id"], {"Status": new_status})
-                    st.experimental_rerun()
+# Function to add an expense
+def add_expense(user_id, date, category, vendor, amount, payment_type, notes):
+    expense_data = {
+        'user_id': user_id,
+        'date': date,
+        'category': category,
+        'vendor': vendor,
+        'amount': amount,
+        'payment_type': payment_type,
+        'notes': notes
+    }
+    expense_ref = db.collection('expenses').add(expense_data)
+    return expense_ref
 
-# --- Expense Tracker ---
-elif page == "Expense Tracker":
-    st.title("💸 Expense Tracker")
-    # Add Expense Form
-    with st.form("add_expense"):
-        item = st.text_input("Item Name")
-        amount = st.number_input("Amount", min_value=0.0, step=0.01)
-        category = st.selectbox("Category", ["Groceries", "Bills", "Entertainment", "Others"])
-        exp_date = st.date_input("Date", value=date.today())
-        submitted = st.form_submit_button("Add Expense")
-        if submitted and item and amount > 0:
-            create_record(EXPENSE_BASE_ID, EXPENSE_TABLE, {
-                "Item": item,
-                "Amount": amount,
-                "Category": category,
-                "Date": exp_date.isoformat()
-            })
-            st.success("Expense added!")
-            st.experimental_rerun()
+# Function to display expenses for a user
+def display_expenses(user_id):
+    expenses_ref = db.collection('expenses').where('user_id', '==', user_id).stream()
+    expenses = [expense.to_dict() for expense in expenses_ref]
+    for expense in expenses:
+        st.write(f"Date: {expense['date']} | Category: {expense['category']} | Amount: ${expense['amount']}")
 
-    # Fetch and display expenses
-    records = get_records(EXPENSE_BASE_ID, EXPENSE_TABLE)
-    expenses = pd.DataFrame([{
-        "Item": r["fields"].get("Item", ""),
-        "Amount": r["fields"].get("Amount", 0),
-        "Category": r["fields"].get("Category", ""),
-        "Date": r["fields"].get("Date", "")
-    } for r in records])
+# Streamlit UI
+st.title("Task and Expense Manager")
 
-    if not expenses.empty:
-        st.dataframe(expenses)
-        st.write(f"**Total Expenses:** ₹{expenses['Amount'].sum():,.2f}")
-        st.bar_chart(expenses.groupby("Category")["Amount"].sum())
+# Register/Login Section
+email = st.text_input("Email")
+password = st.text_input("Password", type='password')
+
+if st.button("Login"):
+    user = sign_in_user(email)
+    if user:
+        st.sidebar.title(f"Welcome, {email}")
+        st.sidebar.write(f"User ID: {user.uid}")
+
+        # Add Task
+        task_name = st.text_input("New Task")
+        if st.button("Add Task"):
+            add_task(user.uid, task_name)
+            st.success("Task added successfully!")
+
+        # Display User's Tasks
+        st.header("Your Tasks")
+        display_tasks(user.uid)
+
+        # Add Expense
+        st.header("Add Expense")
+        expense_date = st.date_input("Expense Date", value=datetime.today())
+        category = st.selectbox("Category", ["Food", "Transportation", "Entertainment", "Other"])
+        vendor = st.text_input("Vendor")
+        amount = st.number_input("Amount", min_value=0.0)
+        payment_type = st.selectbox("Payment Type", ["Cash", "Credit", "Debit"])
+        notes = st.text_area("Notes")
+
+        if st.button("Add Expense"):
+            add_expense(user.uid, expense_date, category, vendor, amount, payment_type, notes)
+            st.success("Expense added successfully!")
+
+        # Display User's Expenses
+        st.header("Your Expenses")
+        display_expenses(user.uid)
+
+# Sign Up Section
+if st.button("Sign Up"):
+    user = register_user(email, password)
+    if user:
+        st.success(f"User {email} registered successfully! You can now log in.")
+    else:
+        st.error("There was an error with registration. Please try again.")
