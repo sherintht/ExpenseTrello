@@ -16,8 +16,11 @@ is_streamlit_cloud = "STREAMLIT_RUNTIME" in os.environ
 if is_streamlit_cloud:
     # Streamlit Cloud - Use Streamlit secrets to load Firebase service account credentials
     firebase_secret = st.secrets["firebase_service_account"]
+
+    # Parse the secret (it's a string, so we need to load it into a dictionary)
     try:
-        cred = credentials.Certificate(json.loads(firebase_secret))  # Load credentials from secrets
+        firebase_credentials = json.loads(firebase_secret)  # Convert JSON string into dictionary
+        cred = credentials.Certificate(firebase_credentials)
         firebase_admin.initialize_app(cred)
         db = firestore.client()
     except ValueError as e:
